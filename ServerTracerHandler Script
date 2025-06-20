@@ -1,0 +1,119 @@
+--[[
+	ServerScript Name: ServerTracerHandler
+	Version: 2.0 (Beam-Based)
+	Parent: ServerScriptService
+	
+	Description:
+	Listens for an event from clients to create a visually appealing, high-performance bullet tracer
+	for all players using a Beam instance instead of a Part. This provides a much more
+	realistic and aesthetically pleasing effect.
+
+	Key Improvements from v1:
+	- Uses a Beam for a smooth, textured, and glowing effect.
+	- The tracer now has a "head" and "tail," fading in transparency along its length.
+	- Uses a fixed, short lifetime for the tracer container to ensure automatic cleanup.
+	- Highly configurable properties for color, speed, thickness, and texture.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+
+local createServerTracerEvent = ReplicatedStorage:WaitForChild("CreateServerTracerEvent")
+
+if not createServerTracerEvent then
+	error("ServerTracerHandler: CRITICAL - CreateServerTracerEvent RemoteEvent not found! Tracers will not work.")
+	return
+end
+
+--==============================================================================
+-- TRACER CONFIGURATION
+-- Feel free to tweak these values to get the desired look!
+--==============================================================================
+local TRACER_CONFIG = {
+	-- Visuals
+	TEXTURE = "rbxassetid://232381220", -- A classic "smoky" beam texture. Find more in the toolbox!
+	COLOR = Color3.fromRGB(255, 255, 220), -- A bright, slightly yellow-white for visibility.
+	LIGHT_EMISSION = 1, -- Makes the tracer glow. Set to 0 to disable.
+	THICKNESS_START = 0.14, -- Thickness at the start of the beam (the "head").
+	THICKNESS_END = 0.18, -- Thickness at the end of the beam (the "tail").
+	FADE_OUT_START = 1, -- Transparency at the start (0 = fully visible).
+	FADE_OUT_END = 0.75, -- Transparency at the end (0.75 = mostly faded).
+
+	-- Physics & Timing
+	SPEED = 2000, -- How fast the tracer appears to travel (studs per second).
+	LIFETIME = 0.09 -- Max time the beam and its container will exist.
+}
+
+--==============================================================================
+-- TRACER CREATION
+--==============================================================================
+
+local function createBeamTracer(startPosition, endPosition)
+	local distance = (startPosition - endPosition).Magnitude
+	if distance < 1 then return end -- Don't bother with tiny tracers.
+
+	-- Create a container part that will hold our beam's attachments.
+	-- This makes cleanup easy as we just destroy this one part.
+	local tracerContainer = Instance.new("Part")
+	tracerContainer.Name = "TracerContainer"
+	tracerContainer.Transparency = 1
+	tracerContainer.CanCollide = false
+	tracerContainer.CanQuery = false
+	tracerContainer.Anchored = true
+	tracerContainer.Parent = Workspace.Terrain -- Parenting to Terrain is a good place for non-interactable effects
+
+	-- Create the start and end points for the beam.
+	local attachment0 = Instance.new("Attachment", tracerContainer)
+	attachment0.WorldPosition = startPosition
+
+	local attachment1 = Instance.new("Attachment", tracerContainer)
+	attachment1.WorldPosition = startPosition -- Start it at the same position initially
+
+	-- Create and configure the beam itself.
+	local beam = Instance.new("Beam", tracerContainer)
+	beam.Name = "TracerBeam"
+	beam.Attachment0 = attachment0
+	beam.Attachment1 = attachment1
+	beam.Texture = TRACER_CONFIG.TEXTURE
+	beam.Color = ColorSequence.new(TRACER_CONFIG.COLOR)
+	beam.LightEmission = TRACER_CONFIG.LIGHT_EMISSION
+	beam.Width0 = TRACER_CONFIG.THICKNESS_START
+	beam.Width1 = TRACER_CONFIG.THICKNESS_END
+	beam.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, TRACER_CONFIG.FADE_OUT_START),
+		NumberSequenceKeypoint.new(1, TRACER_CONFIG.FADE_OUT_END)
+	})
+	beam.FaceCamera = true
+	beam.Segments = 10 -- Default is fine for this.
+
+	-- Calculate the time it should take for the tracer to travel the distance.
+	local travelTime = distance / TRACER_CONFIG.SPEED
+
+	-- Animate the tracer's end point moving from the start to the end position.
+	local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Linear)
+	local tween = TweenService:Create(attachment1, tweenInfo, { WorldPosition = endPosition })
+	tween:Play()
+
+	-- Automatically clean up the tracer container after its lifetime expires.
+	Debris:AddItem(tracerContainer, TRACER_CONFIG.LIFETIME)
+end
+
+
+local function onCreateTracerRequested(playerWhoFired, startPosition, endPosition)
+	-- Basic validation to prevent malformed requests from causing errors.
+	if not (typeof(startPosition) == "Vector3" and typeof(endPosition) == "Vector3") then
+		warn("ServerTracerHandler: Received invalid position data from " .. playerWhoFired.Name)
+		return
+	end
+
+	createBeamTracer(startPosition, endPosition)
+end
+
+--==============================================================================
+-- EVENT CONNECTION
+--==============================================================================
+createServerTracerEvent.OnServerEvent:Connect(onCreateTracerRequested)
+
+print("ServerTracerHandler v2.0 (Beam-Based) Loaded and connected.")
