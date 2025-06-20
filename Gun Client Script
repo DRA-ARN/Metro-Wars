@@ -1,0 +1,716 @@
+--[[
+	LocalScript Name: GunClient
+	Version: FINAL - v20.6 (Cleanup)
+	Parent: Tool Instance (e.g., Pistol, M16)
+	
+	Description:
+	This script manages all client-side functionality for hitscan weapons. It has been refactored for
+	improved readability, maintainability, and performance. It interfaces with a GunSettings 
+	ModuleScript to retrieve weapon-specific parameters.
+
+	Key Responsibilities:
+	- Player Input: Handles aiming down sights (ADS), firing (single, auto, burst), and reloading actions.
+	- Ammunition System: Tracks magazine and reserve ammo.
+	- Firing Mechanics: Calculates raycasts for hit detection, supporting spread and various fire modes.
+	- Aiming Down Sights (ADS): Modifies camera FOV, walk speed, and mouse sensitivity.
+	- Animations: Manages Hold, Aim, Fire, and Reload animations.
+	- Visual & Audio Effects: Manages crosshairs, sounds, and server-side effect requests.
+	- UI Updates: Displays current ammo counts.
+	- State Management & Event Handling: Robustly handles tool and character events.
+
+    Refactor Summary (v20.6):
+    - Removed debug print statements from the raycast processing logic for a cleaner output log.
+]]
+print("GunClient Script Version: FINAL - v20.6 (Cleanup) Loaded for tool:", script.Parent.Name)
+
+--==============================================================================
+-- SERVICES
+--==============================================================================
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local ContextActionService = game:GetService("ContextActionService")
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+
+--==============================================================================
+-- TOOL & PLAYER SETUP
+--==============================================================================
+local tool = script.Parent
+local Handle = tool:WaitForChild("Handle", 15)
+if not Handle then 
+	warn("GunClient: 'Handle' NOT FOUND under Tool: " .. tool:GetFullName() .. ". Gun may not function correctly (visuals, sounds).")
+end
+
+local player = Players.LocalPlayer
+if not player then error("GunClient: LocalPlayer could not be determined. Script cannot run.") end
+
+local mouse = player:GetMouse()
+local camera = Workspace.CurrentCamera
+
+--==============================================================================
+-- REMOTE EVENTS
+--==============================================================================
+local applyPlayerDamageEvent = ReplicatedStorage:WaitForChild("ApplyPlayerDamageEvent")
+local damageBuildingPartEvent = ReplicatedStorage:WaitForChild("DamageBuildingPartEvent")
+local createServerTracerEvent = ReplicatedStorage:WaitForChild("CreateServerTracerEvent")
+local requestPlayGunshotSoundEvent = ReplicatedStorage:WaitForChild("RequestPlayGunshotSoundEvent")
+local requestMuzzleFlashEffectEvent = ReplicatedStorage:WaitForChild("RequestMuzzleFlashEffectEvent")
+local giveAmmoEvent = ReplicatedStorage:WaitForChild("GiveAmmoEvent")
+local executeAmmoReplenishEvent = ReplicatedStorage:WaitForChild("ExecuteAmmoReplenish")
+local createImpactEffectEvent = ReplicatedStorage:WaitForChild("CreateImpactEffectEvent")
+
+--==============================================================================
+-- GUN SETTINGS
+--==============================================================================
+local GunSettingsModule = ReplicatedStorage:WaitForChild("GunSettings")
+local GunSettings = require(GunSettingsModule)
+local settings = GunSettings.Get(tool.Name)
+if not settings then error("GunClient: CRITICAL - Settings for '" .. tool.Name .. "' not found!") end
+
+-- Validate and provide fallbacks for critical settings
+settings.FireRate = (type(settings.FireRate) == "number" and settings.FireRate > 0) and settings.FireRate or 0.1
+settings.MuzzleFlashParticles = (type(settings.MuzzleFlashParticles) == "number" and settings.MuzzleFlashParticles >= 0) and settings.MuzzleFlashParticles or 10
+settings.AimMouseSensitivityMultiplier = (type(settings.AimMouseSensitivityMultiplier) == "number" and settings.AimMouseSensitivityMultiplier > 0 and settings.AimMouseSensitivityMultiplier <= 1) and settings.AimMouseSensitivityMultiplier or 1
+settings.IsBurstFire = settings.IsBurstFire == nil and false or settings.IsBurstFire
+settings.BurstCount = (type(settings.BurstCount) == "number" and settings.BurstCount > 0) and settings.BurstCount or 3
+settings.BurstFireRate = (type(settings.BurstFireRate) == "number" and settings.BurstFireRate > 0) and settings.BurstFireRate or 0.07
+settings.MagazineSize = (type(settings.MagazineSize) == "number" and settings.MagazineSize >= 0) and settings.MagazineSize or 30
+settings.ReserveAmmo = (type(settings.ReserveAmmo) == "number" and settings.ReserveAmmo >= 0) and settings.ReserveAmmo or 90
+if settings.MagazineSize == 0 and not settings.InfiniteAmmo then 
+	warn("GunClient: MagazineSize for " .. tool.Name .. " is 0 and InfiniteAmmo is false. Setting MagazineSize to 1.")
+	settings.MagazineSize = 1
+end
+settings.CrosshairImageId = type(settings.CrosshairImageId) == "string" and settings.CrosshairImageId or ""
+settings.FirstPersonShootingThreshold = (type(settings.FirstPersonShootingThreshold) == "number" and settings.FirstPersonShootingThreshold > 0) and settings.FirstPersonShootingThreshold or 3
+
+
+--==============================================================================
+-- GUN STATE & VARIABLES
+--==============================================================================
+local currentMagazineAmmo = settings.MagazineSize
+local reserveAmmo = settings.ReserveAmmo
+
+local canShoot = true
+local isReloading = false
+local isAiming = false
+local isEquipped = false
+local isFiringBurst = false
+
+local defaultFOV = camera.FieldOfView
+local originalWalkSpeed = 16
+local originalMouseSensitivity = nil
+local previousMouseIcon = ""
+
+local uniqueSuffix = HttpService:GenerateGUID(false)
+local RELOAD_ACTION_NAME = "ReloadGunAction_" .. tool.Name .. "_" .. uniqueSuffix
+local AIM_ACTION_NAME = "AimGunAction_" .. tool.Name .. "_" .. uniqueSuffix
+
+local isLeftMouseDown = false
+
+-- Event connection references
+local inputBeganConnection, inputEndedConnection, firingConnection
+local humanoidDiedConnection, characterAddedConnection
+local ammoBoxConnection, ammoBagConnection
+
+-- Character-specific references
+local characterInstance, humanoid, animator
+
+-- Animation instances and tracks
+local holdAnimation, aimAnimation, fireAnimation, reloadAnimation
+local holdAnimTrack, aimAnimTrack
+
+--==============================================================================
+-- UI REFERENCES & FUNCTIONS
+--==============================================================================
+local playerGui = player:WaitForChild("PlayerGui")
+local gunUiScreenGui = playerGui:FindFirstChild("GunUI")
+local ammoInfoFrame = gunUiScreenGui and gunUiScreenGui:FindFirstChild("AmmoInfoFrame")
+local currentAmmoLabel = ammoInfoFrame and ammoInfoFrame:FindFirstChild("CurrentAmmoLabel")
+local reserveAmmoLabel = ammoInfoFrame and ammoInfoFrame:FindFirstChild("ReserveAmmoLabel")
+
+if not ammoInfoFrame or not currentAmmoLabel or not reserveAmmoLabel then
+	warn("GunClient: UI elements for ammo display were not fully found for " .. tool.Name)
+	ammoInfoFrame = nil -- Disable UI functions if incomplete
+end
+
+local function updateAmmoDisplay()
+	if not ammoInfoFrame then return end
+	currentAmmoLabel.Text = tostring(currentMagazineAmmo)
+	reserveAmmoLabel.Text = settings.InfiniteAmmo and "∞" or tostring(reserveAmmo)
+end
+
+local function setGunUiVisibility(visible)
+	if ammoInfoFrame then 
+		ammoInfoFrame.Visible = visible
+	end
+end
+
+--==============================================================================
+-- VISUAL & AUDIO EFFECTS REFERENCES
+--==============================================================================
+local muzzleFlashEmitter = Handle and Handle:FindFirstChild("MuzzleFlash", true)
+local fireSoundInstance = Handle and Handle:FindFirstChild("FireSound")
+local reloadSound = Handle and Handle:FindFirstChild("ReloadSound")
+local aimInSound = Handle and Handle:FindFirstChild("AimInSound")
+local aimOutSound = Handle and Handle:FindFirstChild("AimOutSound")
+
+--==============================================================================
+-- ANIMATION FUNCTIONS
+--==============================================================================
+local function stopAnimationTrack(track)
+	if track and track.IsPlaying then
+		track:Stop()
+	end
+end
+
+local function playAnimation(animationInstance, looped, priority)
+	if not animator or not animator.Parent or not animationInstance or not animationInstance:IsA("Animation") then return nil end
+
+	local success, animationTrack = pcall(function()
+		return animator:LoadAnimation(animationInstance)
+	end)
+
+	if not success then
+		warn("GunClient: Failed to load animation '" .. (animationInstance and animationInstance.Name or "N/A") .. "': " .. tostring(animationTrack))
+		return nil
+	end
+
+	animationTrack.Looped = looped
+	animationTrack.Priority = priority
+
+	local playSuccess, playError = pcall(function()
+		animationTrack:Play()
+	end)
+
+	if not playSuccess then
+		warn("GunClient: Failed to play animation: " .. tostring(playError))
+		return nil
+	end
+
+	return animationTrack
+end
+
+local function createAnimationInstance(id, suffix)
+	if id and type(id) == "string" and id:match("^rbxassetid") then
+		local anim = Instance.new("Animation")
+		anim.AnimationId = id
+		anim.Name = "Gun" .. suffix .. "Anim_" .. tool.Name
+		anim.Parent = tool
+		return anim
+	end
+	return nil
+end
+
+local function setupCharacterAndAnimations()
+	characterInstance = player.Character
+	if not characterInstance then
+		humanoid, animator = nil, nil
+		return
+	end
+
+	humanoid = characterInstance:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		animator = nil
+		warn("GunClient: Humanoid not found on character for " .. tool.Name)
+		return
+	end
+
+	animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator", humanoid)
+		warn("GunClient: Animator not found, creating a new one for " .. tool.Name)
+	end
+
+	for _, child in ipairs(tool:GetChildren()) do
+		if child:IsA("Animation") then
+			child:Destroy()
+		end
+	end
+
+	stopAnimationTrack(holdAnimTrack); holdAnimTrack = nil
+	stopAnimationTrack(aimAnimTrack); aimAnimTrack = nil
+
+	holdAnimation = createAnimationInstance(settings.HoldAnimationId, "Hold")
+	if settings.CanAim then
+		aimAnimation = createAnimationInstance(settings.AimAnimationId, "Aim")
+	end
+	fireAnimation = createAnimationInstance(settings.FireAnimationId, "Fire")
+	reloadAnimation = createAnimationInstance(settings.ReloadAnimationId, "Reload")
+end
+
+--==============================================================================
+-- HELPER FUNCTIONS
+--==============================================================================
+
+local function isFirstPersonView()
+	if not characterInstance or not humanoid or not humanoid.Parent then return false end
+
+	if player.CameraMode == Enum.CameraMode.LockFirstPerson then
+		return true
+	end
+
+	if camera.CameraSubject == humanoid then
+		local head = characterInstance:FindFirstChild("Head")
+		local characterPart = head or characterInstance.PrimaryPart
+		if characterPart and (characterPart.Position - camera.CFrame.Position).Magnitude < settings.FirstPersonShootingThreshold then
+			return true
+		end
+	end
+
+	return false
+end
+
+
+--==============================================================================
+-- CORE GUN FUNCTIONS (Reload, Shoot)
+--==============================================================================
+
+local function performReload()
+	if isAiming or isReloading or not isEquipped then return end
+
+	local needsReload = (currentMagazineAmmo < settings.MagazineSize)
+	local hasReserve = (settings.InfiniteAmmo or reserveAmmo > 0)
+	if not needsReload or not hasReserve then return end
+
+	isReloading = true
+	canShoot = false
+
+	if reloadSound then reloadSound:Play() end
+	if reloadAnimation and animator and animator.Parent then
+		playAnimation(reloadAnimation, false, Enum.AnimationPriority.Action4)
+	end
+
+	task.wait(settings.ReloadTime)
+
+	if not isEquipped or (humanoid and humanoid.Health <= 0) then
+		isReloading = false
+		canShoot = true
+		return
+	end
+
+	if not settings.InfiniteAmmo then
+		local ammoNeeded = settings.MagazineSize - currentMagazineAmmo
+		local ammoToTransfer = math.min(ammoNeeded, reserveAmmo)
+		currentMagazineAmmo += ammoToTransfer
+		reserveAmmo -= ammoToTransfer
+	else
+		currentMagazineAmmo = settings.MagazineSize
+	end
+
+	isReloading = false
+	canShoot = true
+	updateAmmoDisplay()
+
+	if not isAiming and holdAnimation and animator and animator.Parent and isEquipped then
+		holdAnimTrack = playAnimation(holdAnimation, true, Enum.AnimationPriority.Idle)
+	end
+end
+
+local function getRaycastOriginAndDirection()
+	local origin, direction
+	local isFirstPersonShoot = isFirstPersonView()
+
+	local muzzlePosition
+	if Handle then
+		local muzzleAttachment = Handle:FindFirstChild("MuzzlePoint")
+		if muzzleAttachment and muzzleAttachment:IsA("Attachment") then
+			muzzlePosition = muzzleAttachment.WorldPosition
+		else
+			muzzlePosition = Handle.CFrame * CFrame.new(0, 0, -Handle.Size.Z / 2)
+		end
+	else
+		muzzlePosition = camera.CFrame.Position
+	end
+
+	if isFirstPersonShoot or isAiming then
+		origin = camera.CFrame.Position
+		direction = camera.CFrame.LookVector
+	else
+		local mouseRay = camera:ScreenPointToRay(mouse.X, mouse.Y, 1)
+		local targetWorldPos = mouseRay.Origin + mouseRay.Direction * settings.MaxDistance
+
+		local precastParams = RaycastParams.new()
+		precastParams.FilterDescendantsInstances = {characterInstance}
+		precastParams.FilterType = Enum.RaycastFilterType.Exclude
+		local precastResult = Workspace:Raycast(mouseRay.Origin, mouseRay.Direction * settings.MaxDistance, precastParams)
+		if precastResult then
+			targetWorldPos = precastResult.Position
+		end
+
+		origin = muzzlePosition
+		direction = (targetWorldPos - muzzlePosition).Unit
+	end
+
+	return origin, direction, muzzlePosition
+end
+
+local function calculateSpreadDirection(baseDirection)
+	local spreadMultiplier = isAiming and (settings.AimSpreadMultiplier or 0.3) or 1
+	local baseAngle = settings.NumPellets > 1 and (settings.PelletSpreadAngle or settings.SpreadAngle or 5) or (settings.SpreadAngle or 0)
+
+	if baseAngle > 0 and spreadMultiplier > 0 then
+		local spreadRadius = math.rad(baseAngle * spreadMultiplier)
+		local random = Random.new()
+		local angleX = (random:NextNumber() - 0.5) * 2 * spreadRadius
+		local angleY = (random:NextNumber() - 0.5) * 2 * spreadRadius
+
+		local spreadCFrame = CFrame.new(Vector3.zero, baseDirection) * CFrame.Angles(angleX, angleY, 0)
+		return spreadCFrame.LookVector.Unit
+	end
+
+	return baseDirection
+end
+
+-- CLEANED: Removed debug prints
+local function processRaycastResult(raycastResult, origin, direction)
+	local hitPosition = origin + direction * settings.MaxDistance
+	local hitPart = nil
+	local hitHumanoid = nil
+	local isDestructible = false
+
+	if raycastResult then
+		hitPosition = raycastResult.Position
+		hitPart = raycastResult.Instance
+
+		if hitPart then
+			local targetModel = hitPart:FindFirstAncestorWhichIsA("Model")
+			if targetModel then
+				local targetHumanoid = targetModel:FindFirstChildOfClass("Humanoid")
+				if targetHumanoid and targetHumanoid.Health > 0 and targetHumanoid ~= humanoid then
+					hitHumanoid = targetHumanoid
+				end
+			end
+			if not hitHumanoid and CollectionService:HasTag(hitPart, "DestructibleBuildingPart") then
+				isDestructible = true
+			end
+		end
+	end
+
+	local visualMuzzlePosition = Handle and Handle:FindFirstChild("MuzzlePoint") and Handle.MuzzlePoint.WorldPosition or origin
+	createServerTracerEvent:FireServer(visualMuzzlePosition, hitPosition)
+
+	if hitHumanoid then
+		applyPlayerDamageEvent:FireServer(hitHumanoid, settings.PlayerDamage, hitPart and hitPart.Name or "Unknown", hitPosition, direction)
+	else
+		-- This block handles all non-player hits.
+		if isDestructible and hitPart then
+			damageBuildingPartEvent:FireServer(hitPart, settings.BuildingDamage)
+		end
+
+		if hitPart then
+			createImpactEffectEvent:FireServer(hitPosition, raycastResult.Normal, hitPart.Material)
+		end
+	end
+end
+
+local function fireSingleShot()
+	if not settings.InfiniteAmmo then
+		if currentMagazineAmmo <= 0 then
+			if settings.AutoReloadOnEmpty and not isAiming then
+				performReload()
+			end
+			return false
+		end
+		currentMagazineAmmo -= 1
+	end
+
+	updateAmmoDisplay()
+
+	if Handle then
+		requestPlayGunshotSoundEvent:FireServer(Handle, fireSoundInstance.SoundId, fireSoundInstance.Volume, fireSoundInstance.RollOffMaxDistance)
+		requestMuzzleFlashEffectEvent:FireServer(Handle, settings.MuzzleFlashParticles)
+	end
+
+	if fireAnimation and animator and animator.Parent then
+		playAnimation(fireAnimation, false, Enum.AnimationPriority.Action3)
+	end
+
+	local origin, direction = getRaycastOriginAndDirection()
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterDescendantsInstances = {characterInstance, tool}
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	local numProjectiles = settings.NumPellets or 1
+	for _ = 1, numProjectiles do
+		local shotDirection = calculateSpreadDirection(direction)
+		local result = Workspace:Raycast(origin, shotDirection * settings.MaxDistance, raycastParams)
+		processRaycastResult(result, origin, shotDirection)
+	end
+
+	return true
+end
+
+
+local function shoot()
+	if not canShoot or isReloading or not isEquipped or isFiringBurst then return end
+	if not Handle then warn("GunClient: Cannot fire " .. tool.Name .. ", Handle is missing!"); return end
+	if isAiming and (settings.FireWhileAiming == false) then return end
+
+	canShoot = false
+
+	if settings.IsBurstFire then
+		isFiringBurst = true
+		for i = 1, settings.BurstCount do
+			if not isEquipped or isReloading then break end
+			local shotSuccess = fireSingleShot()
+			if not shotSuccess then break end
+			if i < settings.BurstCount and settings.BurstFireRate > 0 then
+				task.wait(settings.BurstFireRate)
+			end
+		end
+		isFiringBurst = false
+		task.wait(settings.FireRate)
+		canShoot = true
+	else
+		fireSingleShot()
+		task.wait(settings.FireRate)
+		canShoot = true
+	end
+end
+
+--==============================================================================
+-- AIMING FUNCTIONS
+--==============================================================================
+local function startAiming()
+	if not settings.CanAim or isAiming or isReloading or not isEquipped then return end
+	isAiming = true
+	if aimInSound then aimInSound:Play() end
+
+	local targetFOV = settings.AimFOV
+	if camera.FieldOfView ~= targetFOV then
+		TweenService:Create(camera, TweenInfo.new(settings.AimTransitionTime), {FieldOfView = targetFOV}):Play()
+	end
+
+	if humanoid and humanoid.Parent and originalWalkSpeed then
+		humanoid.WalkSpeed = originalWalkSpeed * settings.AimWalkSpeedMultiplier
+	end
+
+	if originalMouseSensitivity == nil then
+		originalMouseSensitivity = UserInputService.MouseDeltaSensitivity
+	end
+	UserInputService.MouseDeltaSensitivity = originalMouseSensitivity * settings.AimMouseSensitivityMultiplier
+
+	stopAnimationTrack(holdAnimTrack); holdAnimTrack = nil
+	if aimAnimation and animator and animator.Parent then
+		aimAnimTrack = playAnimation(aimAnimation, true, Enum.AnimationPriority.Action2)
+	end
+end
+
+local function stopAiming()
+	if not isAiming then return end
+	isAiming = false
+	if aimOutSound then aimOutSound:Play() end
+
+	if camera.FieldOfView ~= defaultFOV then
+		TweenService:Create(camera, TweenInfo.new(settings.AimTransitionTime), {FieldOfView = defaultFOV}):Play()
+	end
+
+	if humanoid and humanoid.Parent and originalWalkSpeed then
+		humanoid.WalkSpeed = originalWalkSpeed
+	end
+
+	if originalMouseSensitivity ~= nil then
+		UserInputService.MouseDeltaSensitivity = originalMouseSensitivity
+		originalMouseensitivity = nil
+	end
+
+	stopAnimationTrack(aimAnimTrack); aimAnimTrack = nil
+
+	if holdAnimation and animator and animator.Parent and isEquipped then
+		holdAnimTrack = playAnimation(holdAnimation, true, Enum.AnimationPriority.Idle)
+	end
+end
+
+--==============================================================================
+-- INPUT HANDLING
+--==============================================================================
+local function handleReloadInput(_actionName, inputState, _inputObject)
+	if inputState == Enum.UserInputState.Begin then
+		performReload()
+	end
+	return Enum.ContextActionResult.Pass
+end
+
+local function handleAimInput(_actionName, inputState, _inputObject)
+	if not settings.CanAim then return Enum.ContextActionResult.Pass end
+
+	if inputState == Enum.UserInputState.Begin then
+		if isFirstPersonView() then
+			startAiming()
+		end
+	elseif inputState == Enum.UserInputState.End then
+		stopAiming()
+	end
+
+	return Enum.ContextActionResult.Pass
+end
+
+--==============================================================================
+-- TOOL EVENT CONNECTIONS & CLEANUP
+--==============================================================================
+local function onCharacterAdded(newCharacter)
+	setupCharacterAndAnimations()
+
+	if humanoid and humanoid.Parent then
+		originalWalkSpeed = humanoid.WalkSpeed
+
+		if humanoidDiedConnection then humanoidDiedConnection:Disconnect() end
+		humanoidDiedConnection = humanoid.Died:Connect(function()
+			if isEquipped and tool.Parent == characterInstance then
+				tool.Parent = player:FindFirstChildOfClass("Backpack") or player
+			end
+		end)
+
+		if isAiming then
+			isAiming = false
+			stopAiming()
+			if isFirstPersonView() then
+				startAiming()
+			end
+		elseif holdAnimation and animator and animator.Parent then
+			holdAnimTrack = playAnimation(holdAnimation, true, Enum.AnimationPriority.Idle)
+		end
+	elseif isAiming then
+		stopAiming()
+	end
+end
+
+local function onEquipped()
+	if isEquipped then return end
+	isEquipped = true
+
+	if player.Character then onCharacterAdded(player.Character) end
+	if characterAddedConnection then characterAddedConnection:Disconnect() end
+	characterAddedConnection = player.CharacterAdded:Connect(onCharacterAdded)
+
+	defaultFOV = camera.FieldOfView
+
+	previousMouseIcon = UserInputService.MouseIcon
+	if settings.CrosshairImageId and settings.CrosshairImageId ~= "" then
+		UserInputService.MouseIcon = settings.CrosshairImageId
+	end
+
+	ContextActionService:BindAction(RELOAD_ACTION_NAME, handleReloadInput, false, Enum.KeyCode.R)
+	ContextActionService:BindAction(AIM_ACTION_NAME, handleAimInput, false, Enum.UserInputType.MouseButton2)
+
+	updateAmmoDisplay()
+	setGunUiVisibility(true)
+
+	if ammoBoxConnection then ammoBoxConnection:Disconnect() end
+	ammoBoxConnection = giveAmmoEvent.OnClientEvent:Connect(function(percentageToAdd)
+		if not isEquipped or settings.InfiniteAmmo then return end
+		local maxReserve = settings.ReserveAmmo
+		if maxReserve > 0 then
+			local ammoToAdd = math.floor(maxReserve * (percentageToAdd / 100))
+			reserveAmmo = math.min(maxReserve, reserveAmmo + ammoToAdd)
+			updateAmmoDisplay()
+		end
+	end)
+
+	if ammoBagConnection then ammoBagConnection:Disconnect() end
+	ammoBagConnection = executeAmmoReplenishEvent.OnClientEvent:Connect(function()
+		if not settings.InfiniteAmmo then
+			reserveAmmo = settings.ReserveAmmo
+			if isEquipped then
+				updateAmmoDisplay()
+			end
+		end
+	end)
+
+	inputBeganConnection = UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+		if not isEquipped or gameProcessedEvent or isReloading or isFiringBurst then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			isLeftMouseDown = true
+			if settings.IsAutomatic and not settings.IsBurstFire then
+				if firingConnection then firingConnection:Disconnect() end
+				firingConnection = RunService.Heartbeat:Connect(function()
+					if not isLeftMouseDown or not isEquipped or isReloading or isFiringBurst or (isAiming and settings.FireWhileAiming == false) then
+						if firingConnection then firingConnection:Disconnect() end; firingConnection = nil; return
+					end
+					if canShoot then shoot() end
+				end)
+			else
+				if canShoot then shoot() end
+			end
+		end
+	end)
+
+	inputEndedConnection = UserInputService.InputEnded:Connect(function(input, _gameProcessedEvent)
+		if not isEquipped then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			isLeftMouseDown = false
+			if firingConnection then firingConnection:Disconnect() end; firingConnection = nil
+		end
+	end)
+
+	if not isAiming and holdAnimation and animator and animator.Parent then
+		holdAnimTrack = playAnimation(holdAnimation, true, Enum.AnimationPriority.Idle)
+	end
+end
+
+local function onUnequipped()
+	if not isEquipped then return end
+	isEquipped = false
+
+	UserInputService.MouseIcon = previousMouseIcon
+	setGunUiVisibility(false)
+
+	if ammoBoxConnection then ammoBoxConnection:Disconnect(); ammoBoxConnection = nil end
+	if ammoBagConnection then ammoBagConnection:Disconnect(); ammoBagConnection = nil end
+	if humanoidDiedConnection then humanoidDiedConnection:Disconnect(); humanoidDiedConnection = nil end
+	if characterAddedConnection then characterAddedConnection:Disconnect(); characterAddedConnection = nil end
+	if firingConnection then firingConnection:Disconnect(); firingConnection = nil end
+	if inputBeganConnection then inputBeganConnection:Disconnect(); inputBeganConnection = nil end
+	if inputEndedConnection then inputEndedConnection:Disconnect(); inputEndedConnection = nil end
+
+	ContextActionService:UnbindAction(RELOAD_ACTION_NAME)
+	ContextActionService:UnbindAction(AIM_ACTION_NAME)
+
+	if isAiming then stopAiming() end
+	if originalMouseSensitivity ~= nil then
+		UserInputService.MouseDeltaSensitivity = originalMouseSensitivity
+		originalMouseensitivity = nil
+
+	end
+
+	if animator and animator.Parent then
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			if track.Animation and (
+				(holdAnimation and track.Animation.AnimationId == holdAnimation.AnimationId) or
+					(aimAnimation and track.Animation.AnimationId == aimAnimation.AnimationId) or
+					(fireAnimation and track.Animation.AnimationId == fireAnimation.AnimationId) or
+					(reloadAnimation and track.Animation.AnimationId == reloadAnimation.AnimationId)
+				) then
+				track:Stop()
+			end
+		end
+	end
+	holdAnimTrack, aimAnimTrack = nil, nil
+
+	local currentCharacter = player.Character
+	local currentHumanoid = currentCharacter and currentCharacter:FindFirstChildOfClass("Humanoid")
+	if currentHumanoid and currentHumanoid.Parent then
+		currentHumanoid.WalkSpeed = originalWalkSpeed
+	end
+
+	characterInstance, humanoid, animator = nil, nil, nil
+	isLeftMouseDown = false
+	isReloading = false
+	canShoot = true
+	isFiringBurst = false
+end
+
+tool.Equipped:Connect(onEquipped)
+tool.Unequipped:Connect(onUnequipped)
+
+-- Initial state setup
+setGunUiVisibility(false)
+updateAmmoDisplay()
+
+print("GunClient Script (Refactored v20.6) Initialized for:", tool.Name)
