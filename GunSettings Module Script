@@ -1,0 +1,561 @@
+-- ModuleScript in ReplicatedStorage named "GunSettings"
+-- Stores configurations for different types of weapons.
+-- Version: 2.15.7 (Spread Reduced & AimSpreadMultiplier set to 1.0)
+
+local GunSettings = {}
+
+-- Define default settings that can be overridden by specific weapons.
+local DEFAULT_SETTINGS = {
+	-- Core Weapon Identity & Type
+	WeaponType = "Hitscan",             -- "Hitscan" or "Projectile"
+
+	-- Common Damage & Firing Mechanics
+	PlayerDamage = 10,
+	BuildingDamage = 15,
+	FireRate = 0.5,                     -- Seconds between shots (or between bursts for burst-fire)
+	IsAutomatic = false,
+	FireWhileAiming = true,
+
+	-- Burst Fire Settings
+	IsBurstFire = false,
+	BurstCount = 3,
+	BurstFireRate = 0.07,
+
+	-- Common Ammo System
+	MagazineSize = 30,
+	ReserveAmmo = 90,
+	ReloadTime = 2.5,
+	AutoReloadOnEmpty = true,
+	InfiniteAmmo = false,
+
+	-- Common Aiming & Animation
+	CanAim = true,
+	AimFOV = 45,                        
+	AimWalkSpeedMultiplier = 0.7,
+	AimTransitionTime = 0.15,
+	AimMouseSensitivityMultiplier = 1, 
+	CrosshairImageId = "",              -- e.g., "rbxassetid://YOUR_GAME_IMAGE_ID"
+	HoldAnimationId = "",
+	AimAnimationId = "",
+	FireAnimationId = "",
+	ReloadAnimationId = "",
+
+	-- Hitscan Specific Settings
+	MaxDistance = 300,
+	TracerVisibleDuration = 0.07,
+	NumPellets = 1,
+	SpreadAngle = 0,
+	AimSpreadMultiplier = 1.0, -- <<< MODIFIED: Default is now 1.0
+	FirstPersonShootingThreshold = 2.5,
+
+	-- Projectile Common Settings
+	ProjectileName = "DefaultRocketProjectile", 
+	ProjectileSpeed = 100,
+	MaxFlightDuration = 5,
+	MuzzleOffset = Vector3.new(0, 0, -2.5), 
+	ProjectileAffectedByGravity = false,    
+	MuzzleFlashParticles = 10,              
+
+	-- Projectile Explosion Specific Settings
+	ExplosionRadius = 20,
+	ExplosionDamagePlayers = 80,            
+	ExplosionDamageBuildings = 100,         
+	ExplosionSounds = {},
+	ExplosionParticles = {},
+	ApplyPhysicsImpulse = true,
+	PhysicsImpulseRadius = 25,
+	PhysicsImpulseStrength = 75,
+	MaxImpulseParts = 20,
+}
+
+-- Define settings for specific weapons by their exact Tool name OR ProjectileName
+GunSettings.Guns = {
+
+	-- === PISTOLS ===
+	["Pistol"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 20, 
+		BuildingDamage             = 20, 
+		FireRate                   = 0.3, 
+		MagazineSize               = 12, 
+		ReserveAmmo                = 48, 
+		ReloadTime                 = 1.8, 
+		MaxDistance                = 500, 
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 50,
+		AimMouseSensitivityMultiplier = 0.6,
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",   
+		FireAnimationId            = "rbxassetid://75154666589634", 
+		ReloadAnimationId          = "rbxassetid://82581209273926",
+		SpreadAngle                = 0.8, -- MODIFIED
+		AimSpreadMultiplier        = 1.0,
+		MuzzleFlashParticles       = 5,
+	},
+	["Glock19"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 15, 
+		BuildingDamage             = 8, 
+		FireRate                   = 0.25, 
+		MagazineSize               = 15, 
+		ReserveAmmo                = 60, 
+		ReloadTime                 = 1.6, 
+		MaxDistance                = 500, 
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 55,
+		AimMouseSensitivityMultiplier = 0.65, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",    
+		FireAnimationId            = "rbxassetid://75154666589634",   
+		ReloadAnimationId          = "rbxassetid://82581209273926",  
+		SpreadAngle                = 1.0, -- MODIFIED
+		AimSpreadMultiplier        = 1.0,
+		MuzzleFlashParticles       = 4,
+	},
+	["Glock 17"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 16, 
+		BuildingDamage             = 9, 
+		FireRate                   = 0.28, 
+		MagazineSize               = 17, 
+		ReserveAmmo                = 68, 
+		ReloadTime                 = 1.7, 
+		MaxDistance                = 500, 
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 55,
+		AimMouseSensitivityMultiplier = 0.65, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",   
+		FireAnimationId            = "rbxassetid://75154666589634",    
+		ReloadAnimationId          = "rbxassetid://82581209273926",  
+		SpreadAngle                = 1.0, -- MODIFIED
+		AimSpreadMultiplier        = 1.0,
+		MuzzleFlashParticles       = 4,
+	},
+	["Revolver"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 60, 
+		BuildingDamage             = 40, 
+		FireRate                   = 0.9, 
+		MagazineSize               = 6, 
+		ReserveAmmo                = 30, 
+		ReloadTime                 = 3.5, 
+		MaxDistance                = 400, 
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 50,
+		AimMouseSensitivityMultiplier = 0.5, 
+		CrosshairImageId           = "rbxassetid://80851199951071",
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",   
+		FireAnimationId            = "rbxassetid://75154666589634",    
+		ReloadAnimationId          = "rbxassetid://82581209273926",  
+		SpreadAngle                = 0.5, -- MODIFIED
+		AimSpreadMultiplier        = 1.0,
+		MuzzleFlashParticles       = 8,
+	},
+	["Videogame Zapper"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 90, 
+		BuildingDamage             = 100, 
+		FireRate                   = 0.5, 
+		MagazineSize               = 2, 
+		ReserveAmmo                = 32, 
+		ReloadTime                 = 1.5, 
+		MaxDistance                = 100, 
+		IsAutomatic                = false, 
+		CanAim                     = true,
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",   
+		FireAnimationId            = "rbxassetid://75154666589634",    
+		ReloadAnimationId          = "rbxassetid://82581209273926",  
+		SpreadAngle                = 0, 
+		MuzzleFlashParticles       = 50,
+	},
+
+	-- === SMGS / MACHINE PISTOLS ===
+	["MP5"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 15, 
+		BuildingDamage             = 10, 
+		FireRate                   = 0.09, 
+		MagazineSize               = 30, 
+		ReserveAmmo                = 150, 
+		ReloadTime                 = 2.2, 
+		MaxDistance                = 500, 
+		IsAutomatic                = true, 
+		CanAim                     = true, 
+		AimFOV                     = 50,
+		AimWalkSpeedMultiplier     = 0.75, 
+		AimMouseSensitivityMultiplier = 0.55, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310", 
+		FireAnimationId            = "rbxassetid://75154666589634", 
+		ReloadAnimationId          = "rbxassetid://82581209273926",  
+		SpreadAngle                = 2.5, -- MODIFIED
+		AimSpreadMultiplier        = 1.0, 
+		MuzzleFlashParticles       = 10,
+	},
+	["Tec-9"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 19, 
+		BuildingDamage             = 12, 
+		FireRate                   = 0.08, 
+		MagazineSize               = 24, 
+		ReserveAmmo                = 120, 
+		ReloadTime                 = 2.1, 
+		MaxDistance                = 300, 
+		IsAutomatic                = true, 
+		CanAim                     = true, 
+		AimFOV                     = 55, 
+		AimWalkSpeedMultiplier     = 0.8,
+		AimMouseSensitivityMultiplier = 0.6, 
+		CrosshairImageId           = "rbxassetid://80851199951071",
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",    
+		FireAnimationId            = "rbxassetid://75154666589634",   
+		ReloadAnimationId          = "rbxassetid://82581209273926",  
+		SpreadAngle                = 3.0, -- MODIFIED
+		AimSpreadMultiplier        = 1.0,
+		MuzzleFlashParticles       = 9,
+	},
+	["Skorpion"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 14,    
+		BuildingDamage             = 7, 
+		FireRate                   = 0.06,  
+		MagazineSize               = 20,    
+		ReserveAmmo                = 100, 
+		ReloadTime                 = 1.9,   
+		MaxDistance                = 250,   
+		IsAutomatic                = true, 
+		CanAim                     = true, 
+		AimFOV                     = 55,
+		AimWalkSpeedMultiplier     = 0.85,  
+		AimMouseSensitivityMultiplier = 0.65,
+		CrosshairImageId           = "rbxassetid://80851199951071",
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",   
+		FireAnimationId            = "rbxassetid://75154666589634",    
+		ReloadAnimationId          = "rbxassetid://82581209273926",  
+		SpreadAngle                = 4.0, -- MODIFIED
+		AimSpreadMultiplier        = 1.0, 
+		MuzzleFlashParticles       = 7,
+	},
+
+	-- === ASSAULT RIFLES / BATTLE RIFLES / DMRs ===
+	["M16"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 18, 
+		BuildingDamage             = 25, 
+		FireRate                   = 0.15, 
+		MagazineSize               = 30, 
+		ReserveAmmo                = 120, 
+		ReloadTime                 = 2.5, 
+		MaxDistance                = 500, 
+		IsAutomatic                = true, 
+		CanAim                     = true, 
+		AimFOV                     = 35, 
+		AimWalkSpeedMultiplier     = 0.6,
+		AimMouseSensitivityMultiplier = 0.4, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://88016792669350",
+		AimAnimationId             = "rbxassetid://122746232666709",
+		FireAnimationId            = "rbxassetid://102229900330234",
+		ReloadAnimationId          = "rbxassetid://132642548698101",
+		SpreadAngle                = 0.8, -- MODIFIED
+		AimSpreadMultiplier        = 1.0, 
+		MuzzleFlashParticles       = 15,
+	},
+	["AS-VAL"] = { 
+		WeaponType                 = "Hitscan",
+		PlayerDamage               = 22,
+		BuildingDamage             = 18,
+		FireRate                   = 0.11,
+		MagazineSize               = 30,
+		ReserveAmmo                = 120,
+		ReloadTime                 = 2.7,
+		MaxDistance                = 500,
+		IsAutomatic                = true,
+		CanAim                     = true,
+		AimFOV                     = 40,
+		AimWalkSpeedMultiplier     = 0.65,
+		AimMouseSensitivityMultiplier = 0.45, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://88016792669350",    
+		AimAnimationId             = "rbxassetid://122746232666709",     
+		FireAnimationId            = "rbxassetid://102229900330234",    
+		ReloadAnimationId          = "rbxassetid://132642548698101",  
+		SpreadAngle                = 1.5, -- MODIFIED
+		AimSpreadMultiplier        = 1.0,
+		MuzzleFlashParticles       = 15,
+	},
+	["M14"] = { 
+		WeaponType                 = "Hitscan",
+		PlayerDamage               = 35,
+		BuildingDamage             = 25,
+		FireRate                   = 0.4,
+		MagazineSize               = 20,
+		ReserveAmmo                = 80,
+		ReloadTime                 = 2.9,
+		MaxDistance                = 500,
+		IsAutomatic                = false,
+		CanAim                     = true,
+		AimFOV                     = 30,
+		AimWalkSpeedMultiplier     = 0.55,
+		AimMouseSensitivityMultiplier = 0.35, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://88016792669350",    
+		AimAnimationId             = "rbxassetid://122746232666709",     
+		FireAnimationId            = "rbxassetid://102229900330234",    
+		ReloadAnimationId          = "rbxassetid://132642548698101",  
+		SpreadAngle                = 0.6, -- MODIFIED
+		AimSpreadMultiplier        = 1.0,
+		MuzzleFlashParticles       = 12,
+	},
+	["Famas"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 16, 
+		BuildingDamage             = 18, 
+		FireRate                   = 0.5,   
+		IsAutomatic                = false, 
+		IsBurstFire                = true,  
+		BurstCount                 = 3,     
+		BurstFireRate              = 0.09,  
+		MagazineSize               = 30, 
+		ReserveAmmo                = 120, 
+		ReloadTime                 = 2.6, 
+		MaxDistance                = 500, 
+		CanAim                     = true, 
+		AimFOV                     = 38, 
+		AimWalkSpeedMultiplier     = 0.6,
+		AimMouseSensitivityMultiplier = 0.4, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://88016792669350",    
+		AimAnimationId             = "rbxassetid://122746232666709",     
+		FireAnimationId            = "rbxassetid://102229900330234",    
+		ReloadAnimationId          = "rbxassetid://132642548698101",  
+		SpreadAngle                = 1.0, -- MODIFIED
+		AimSpreadMultiplier        = 1.0, 
+		MuzzleFlashParticles       = 12,
+	},
+
+	-- === SHOTGUNS ===
+	["Shotgun"] = {
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 8,     
+		BuildingDamage             = 10,    
+		FireRate                   = 0.8,
+		MagazineSize               = 6,
+		ReserveAmmo                = 24,
+		ReloadTime                 = 1.8, 
+		MaxDistance                = 500, 
+		NumPellets                 = 8, 
+		SpreadAngle                = 2.0, -- MODIFIED
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 55,
+		AimMouseSensitivityMultiplier = 0.7, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		AimSpreadMultiplier        = 1.0, 
+		HoldAnimationId            = "rbxassetid://118599795248871",
+		AimAnimationId             = "rbxassetid://122746232666709",
+		FireAnimationId            = "rbxassetid://125468691662302",
+		ReloadAnimationId          = "rbxassetid://83990529704438",
+		MuzzleFlashParticles       = 20,
+	},
+	["Sawed Off"] = {
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 12,    
+		BuildingDamage             = 15,    
+		FireRate                   = 1.2,   
+		MagazineSize               = 2,     
+		ReserveAmmo                = 20, 
+		ReloadTime                 = 2.8,   
+		MaxDistance                = 40,    
+		NumPellets                 = 10,    
+		SpreadAngle                = 6.0, -- MODIFIED
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 60,    
+		AimMouseSensitivityMultiplier = 0.8, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		AimSpreadMultiplier        = 1.0,   
+		HoldAnimationId            = "rbxassetid://101850529103863", 
+		AimAnimationId             = "rbxassetid://104076643377310",
+		FireAnimationId            = "rbxassetid://75154666589634",
+		ReloadAnimationId          = "rbxassetid://126215712750926",
+		MuzzleFlashParticles       = 25,
+	},
+	["Double Barrel"] = {
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 10,    
+		BuildingDamage             = 12,    
+		FireRate                   = 0.9,
+		MagazineSize               = 2,
+		ReserveAmmo                = 22,
+		ReloadTime                 = 3.0, 
+		MaxDistance                = 70,    
+		NumPellets                 = 9,    
+		SpreadAngle                = 3.5, -- MODIFIED
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 50,
+		AimMouseSensitivityMultiplier = 0.65, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		AimSpreadMultiplier        = 1.0, 
+		HoldAnimationId            = "rbxassetid://118599795248871", 
+		AimAnimationId             = "rbxassetid://122746232666709",
+		FireAnimationId            = "rbxassetid://125468691662302",
+		ReloadAnimationId          = "rbxassetid://126215712750926",
+		MuzzleFlashParticles       = 22,
+	},
+	["Ranged Shotgun"] = {
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 25,    
+		BuildingDamage             = 25,    
+		FireRate                   = 1.0,
+		MagazineSize               = 5,
+		ReserveAmmo                = 25,
+		ReloadTime                 = 3.2, 
+		MaxDistance                = 120,   
+		NumPellets                 = 6,     
+		SpreadAngle                = 1.0, -- MODIFIED
+		IsAutomatic                = false, 
+		CanAim                     = true, 
+		AimFOV                     = 45,
+		AimMouseSensitivityMultiplier = 0.5, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		AimSpreadMultiplier        = 1.0,   
+		HoldAnimationId            = "rbxassetid://118599795248871", 
+		AimAnimationId             = "rbxassetid://122746232666709",
+		FireAnimationId            = "rbxassetid://125468691662302",
+		ReloadAnimationId          = "rbxassetid://126215712750926",
+		MuzzleFlashParticles       = 15,
+	},
+
+	-- === SNIPER RIFLES ===
+	["Sniper"] = {
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 90,
+		BuildingDamage             = 100, 
+		FireRate                   = 1.90,
+		MagazineSize               = 5, 
+		ReserveAmmo                = 20,
+		ReloadTime                 = 3.2,
+		MaxDistance                = 1000, 
+		IsAutomatic                = false,
+		CanAim                     = true,      
+		AimFOV                     = 20,      
+		AimWalkSpeedMultiplier     = 0.4, 
+		AimMouseSensitivityMultiplier = 0.2,
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://118599795248871",
+		AimAnimationId             = "rbxassetid://122746232666709", 
+		FireAnimationId            = "rbxassetid://125468691662302",
+		ReloadAnimationId          = "rbxassetid://132642548698101",
+		SpreadAngle                = 0.1, 
+		AimSpreadMultiplier        = 1.0, 
+		MuzzleFlashParticles       = 8,
+	},
+
+	-- === LMGS ===
+	["M250"] = { 
+		WeaponType                 = "Hitscan", 
+		PlayerDamage               = 25, 
+		BuildingDamage             = 30, 
+		FireRate                   = 0.09, 
+		MagazineSize               = 100, 
+		ReserveAmmo                = 200, 
+		ReloadTime                 = 5.5, 
+		MaxDistance                = 500, 
+		IsAutomatic                = true, 
+		CanAim                     = true, 
+		AimFOV                     = 40, 
+		AimWalkSpeedMultiplier     = 0.5, 
+		AimMouseSensitivityMultiplier = 0.5, 
+		CrosshairImageId           = "rbxassetid://80851199951071", 
+		HoldAnimationId            = "rbxassetid://88016792669350",    
+		AimAnimationId             = "rbxassetid://122746232666709",     
+		FireAnimationId            = "rbxassetid://102229900330234",   
+		ReloadAnimationId          = "rbxassetid://132642548698101",  
+		SpreadAngle                = 2.0, -- MODIFIED
+		AimSpreadMultiplier        = 1.0, 
+		MuzzleFlashParticles       = 20,
+	},
+
+	-- === PROJECTILE LAUNCHERS & PROJECTILES ===
+	-- (These are unaffected as they do not use spread mechanics)
+	["RocketLauncher"] = { 
+		WeaponType = "Projectile", PlayerDamage = 0, BuildingDamage = 0, FireRate = 2.5, MagazineSize = 1, ReserveAmmo = 4, ReloadTime = 2.5, IsAutomatic = false, CanAim = true, AimFOV = 50, AimWalkSpeedMultiplier = 0.5,
+		AimMouseSensitivityMultiplier = 0.6, CrosshairImageId = "rbxassetid://80851199951071", 
+		HoldAnimationId = "rbxassetid://118599795248871", AimAnimationId = "rbxassetid://122746232666709", FireAnimationId = "rbxassetid://125468691662302", ReloadAnimationId = "rbxassetid://125135831851696",
+		ProjectileName = "RocketMK1", ProjectileSpeed = 700, MaxFlightDuration = 7, MuzzleOffset = Vector3.new(0, 0.2, -3), MuzzleFlashParticles = 0, FirstPersonShootingThreshold = 3.0,
+	},
+	["GrenadeLauncher"] = { 
+		WeaponType = "Projectile", PlayerDamage = 10, BuildingDamage = 100, FireRate = 1.2, MagazineSize = 1, ReserveAmmo = 8, ReloadTime = 3.0, IsAutomatic = false, CanAim = true, AimFOV = 55, AimWalkSpeedMultiplier = 0.6,
+		AimMouseSensitivityMultiplier = 0.7, CrosshairImageId = "rbxassetid://80851199951071", 
+		HoldAnimationId = "rbxassetid://88016792669350", AimAnimationId = "rbxassetid://122746232666709", FireAnimationId = "rbxassetid://102229900330234", ReloadAnimationId = "rbxassetid://132642548698101",  
+		ProjectileName = "GrenadeRound", ProjectileSpeed = 400, MaxFlightDuration = 8, MuzzleOffset = Vector3.new(0, 0.1, -1.5), MuzzleFlashParticles = 3, ProjectileAffectedByGravity = true, FirstPersonShootingThreshold = 3.0,
+		ExplosionRadius = 15, 
+        ExplosionDamagePlayers = 85, 
+        ExplosionDamageBuildings = 120,
+		ExplosionSounds = { {SoundId = "rbxassetid://YOUR_GRENADE_BOUNCE_SOUND_ID", Delay = 0}, {SoundId = "rbxassetid://YOUR_GRENADE_EXPLODE_SOUND_ID", Delay = 0} },
+		ExplosionParticles = { {Name = "ExplosionFlash", EmitCount = 10}, {Name = "ExplosionSmoke", EmitCount = 25}, {Name = "ExplosionSparks", EmitCount = 100}, {Name = "ExplosionDebris", EmitCount = 10} },
+		ApplyPhysicsImpulse = true, PhysicsImpulseRadius = 18, PhysicsImpulseStrength = 50,
+	},
+
+	["RocketMK1"] = { 
+		WeaponType = "Projectile", ExplosionRadius = 18, ExplosionDamagePlayers = 200, ExplosionDamageBuildings = 200,
+		ExplosionSounds = {
+			{SoundId = "rbxassetid://71472197762839", Volume = 1, Pitch = 1.0, Delay = 0.0, RollOffMaxDistance = 250}, 
+			{SoundId = "rbxassetid://7818612635", Volume = 0.9, Pitch = 0.8, Delay = 0.5, RollOffMaxDistance = 300}, 
+			{SoundId = "rbxassetid://9114034406", Volume = 0.7, Pitch = 1.0, Delay = 1, RollOffMaxDistance = 200},
+		},
+		ExplosionParticles = {
+			{Name = "ExplosionFlash", EmitCount = 40}, {Name = "ExplosionFireball", EmitCount = 40}, {Name = "ExplosionSmoke", EmitCount = 3}, 
+			{Name = "ExplosionSparks", EmitCount = 250},{Name = "ExplosionDebris", EmitCount = 40},
+		},
+		ApplyPhysicsImpulse = true, PhysicsImpulseRadius = 28, PhysicsImpulseStrength = 80,
+	},
+	["GrenadeRound"] = { 
+		WeaponType = "Projectile", ExplosionRadius = 10, ExplosionDamagePlayers = 70, ExplosionDamageBuildings = 100,
+		ExplosionSounds = {
+			{SoundId = "rbxassetid://71472197762839", Volume = 0.8, Pitch = 1.1, Delay = 0.0, RollOffMaxDistance = 180}, 
+			{SoundId = "rbxassetid://9114034406", Volume = 0.7, Pitch = 0.9, Delay = 0.1, RollOffMaxDistance = 200}, 
+		},
+		ExplosionParticles = {
+			{Name = "ExplosionFlash", EmitCount = 15}, {Name = "ExplosionSmoke", EmitCount = 20}, {Name = "ExplosionSparks", EmitCount = 150}, {Name = "ExplosionDebris", EmitCount = 10}, 
+		},
+		ApplyPhysicsImpulse = true, PhysicsImpulseRadius = 20, PhysicsImpulseStrength = 60,
+	},
+}
+
+-- Function to get the settings for a specific weapon name.
+function GunSettings.Get(weaponName)
+	if not weaponName then
+		warn("GunSettings.Get: weaponName is nil. Returning a copy of default settings.")
+		local defaultCopy = {}
+		for key, value in pairs(DEFAULT_SETTINGS) do defaultCopy[key] = value end
+		return defaultCopy
+	end
+	local settings = {}
+	for key, value in pairs(DEFAULT_SETTINGS) do settings[key] = value end
+	local specificSettings = GunSettings.Guns[weaponName]
+	if specificSettings then
+		for key, value in pairs(specificSettings) do settings[key] = value end
+	else
+		warn("GunSettings: No specific settings found for weapon '" .. tostring(weaponName) .. "'. Using only default settings from GunSettings module.")
+	end
+	return settings
+end
+
+return GunSettings
